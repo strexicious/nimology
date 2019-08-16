@@ -70,8 +70,7 @@ discard ngn.addRender("sqware", sqwareRender)
 
 # add updates
 let sqwareUpdate = proc(delta: GLfloat): void =
-  let scaled = mat4f(1.0).scale(2 + sin(glfwGetTime() * 4))
-  model = scaled.rotate(glfwGetTime(), vec3f(0.0, 0.0, 1.0))
+  model = mat4f(1.0).rotate(glfwGetTime(), vec3f(0.0, 0.0, 1.0))
 
 ngn.addUpdate(sqwareUpdate)
 
