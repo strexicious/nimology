@@ -206,7 +206,7 @@ proc loopEngine*(engine: var Engine): void =
       if obj.ebo != 0:
         glDrawElements(GL_TRIANGLES, obj.indSize, GL_UNSIGNED_INT, nil)
       else:
-        glDrawArrays(GL_TRIANGLES, 0, obj.vertSize)
+        glDrawArrays(GL_LINE_STRIP, 0, obj.vertSize)
     
     if engine.window.getKey(keyEscape) == kaPress:
       engine.window.setWindowShouldClose(true)
@@ -230,7 +230,8 @@ proc stopEngine*(engine: var Engine): Result[void, string] =
     
     glDeleteVertexArrays(1, unsafeAddr obj.vao)
   
-  glDeleteTextures(GLsizei(engine.textures.len), engine.textures[0].addr)
+  if engine.textures.len != 0:
+    glDeleteTextures(GLsizei(engine.textures.len), engine.textures[0].addr)
   
   # this also destroys OpenGL context
   engine.window.destroyWindow()
