@@ -37,8 +37,16 @@ discard ngn.addRawObject("sqware", data, @[(2'i32, 0), (3'i32, 2), (2'i32, 5)])
 discard ngn.rawObjectIndices("sqware", indices)
 
 let imgData1 = stbiLoad("res/sample.png", stbiRGB)
+let imgData2 = stbiLoad("res/sample2.png", stbiRGB)
+
 ngn.addTexture(GL_TEXTURE0, imgData1)
+ngn.addTexture(GL_TEXTURE1, imgData2)
+
 imageFree(imgData1)
+imageFree(imgData2)
+
+glUniform1i(glGetUniformLocation(sp, "texKitten"), 0)
+glUniform1i(glGetUniformLocation(sp, "texPuppy"), 1)
 
 ngn.loopEngine()
 discard ngn.stopEngine()

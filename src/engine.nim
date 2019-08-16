@@ -181,7 +181,6 @@ proc loopEngine*(engine: var Engine): void =
     var deltaTme = now - lastTime
     # run the updates
     # run the renderers
-    glUniform1f(glGetUniformLocation(engine.shaderPrograms[0], "time"), glfwGetTime())
     for obj in engine.objects.values:
       glBindVertexArray(obj.vao)
       if obj.ebo != 0:
