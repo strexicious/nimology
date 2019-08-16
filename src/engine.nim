@@ -10,8 +10,8 @@ type
     WIDTH: int32
     HEIGHT: int32
     window*: GLFWWindow
-    updates: seq[proc(): void]
-    renders: seq[proc(): void]
+    updates: seq[proc(delta: GLfloat): void]
+    renders: seq[(string, proc(): void)]
     textures: seq[GLuint]
     shaderPrograms: seq[GLuint]
     objects: Table[string, Object]
@@ -170,6 +170,20 @@ proc addTexture*(engine: var Engine, unit: GLenum, imgData: ImageData): void =
     GL_UNSIGNED_BYTE, cast[pointer](imgData.data))
   engine.textures.add(tex)
 
+proc addRender*(
+  engine: var Engine,
+  name: string,
+  render: proc(): void
+): Result[void, string] =
+  if not engine.objects.hasKey(name):
+    result.err("no such object: " & name)
+    return
+  
+  engine.renders.add((name, render))
+
+proc addUpdate*(engine: var Engine, update: proc(delta: GLfloat): void): void =
+  engine.updates.add(update)
+
 proc loopEngine*(engine: var Engine): void =
   var lastTime = glfwGetTime()
   while not engine.window.windowShouldClose:
@@ -178,16 +192,21 @@ proc loopEngine*(engine: var Engine): void =
     # get input and queue updates
     let now = glfwGetTime()
     lastTime = now
-    var deltaTme = now - lastTime
+    let deltaTme = now - lastTime
+    
     # run the updates
+    for update in engine.updates:
+      update(deltaTme)
+
     # run the renderers
-    for obj in engine.objects.values:
+    for render in engine.renders:
+      render[1]()
+      let obj = engine.objects[render[0]]
       glBindVertexArray(obj.vao)
       if obj.ebo != 0:
         glDrawElements(GL_TRIANGLES, obj.indSize, GL_UNSIGNED_INT, nil)
       else:
         glDrawArrays(GL_TRIANGLES, 0, obj.vertSize)
-    glBindVertexArray(0)
     
     if engine.window.getKey(keyEscape) == kaPress:
       engine.window.setWindowShouldClose(true)
