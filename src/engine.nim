@@ -191,12 +191,12 @@ proc loopEngine*(engine: var Engine): void =
 
     # get input and queue updates
     let now = glfwGetTime()
+    let deltaTime = now - lastTime
     lastTime = now
-    let deltaTme = now - lastTime
     
     # run the updates
     for update in engine.updates:
-      update(deltaTme)
+      update(deltaTime)
 
     # run the renderers
     for render in engine.renders:
