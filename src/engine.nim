@@ -222,7 +222,8 @@ proc stopEngine*(engine: var Engine): Result[void, string] =
     
     glDeleteVertexArrays(1, unsafeAddr obj.vao)
   
-  glDeleteTextures(GLsizei(engine.textures.len), engine.textures[0].addr)
+  if engine.textures.len != 0:
+    glDeleteTextures(GLsizei(engine.textures.len), engine.textures[0].addr)
   
   # this also destroys OpenGL context
   engine.window.destroyWindow()
