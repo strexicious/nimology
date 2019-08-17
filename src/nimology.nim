@@ -22,10 +22,13 @@ let sp = ngn
 
 # vertex data
 var data: seq[GLfloat] = @[]
-for z in countup(0, 1000):
+for z in countup(0, 999):
   for x in countup(0, 1000):
     data.add((GLfloat(x) - 500.0) * 0.01)
     data.add((GLfloat(z) - 500.0) * 0.01)
+    
+    data.add((GLfloat(x) - 500.0) * 0.01)
+    data.add((GLfloat(z+1) - 500.0) * 0.01)
 
 discard ngn.addRawObject("sqware", data, @[(2'i32, 0)])
 

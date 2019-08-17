@@ -206,7 +206,7 @@ proc loopEngine*(engine: var Engine): void =
       if obj.ebo != 0:
         glDrawElements(GL_TRIANGLES, obj.indSize, GL_UNSIGNED_INT, nil)
       else:
-        glDrawArrays(GL_LINE_STRIP, 0, obj.vertSize)
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, obj.vertSize)
     
     if engine.window.getKey(keyEscape) == kaPress:
       engine.window.setWindowShouldClose(true)
