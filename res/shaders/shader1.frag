@@ -11,5 +11,5 @@ uniform sampler2D texPuppy;
 void main() {
     vec4 colKitten = texture(texKitten, f_texcoord);
     vec4 colPuppy = texture(texPuppy, f_texcoord);
-    color = mix(colKitten, colPuppy, 0.5);
+    color = mix(colKitten, colPuppy, 0.5) * vec4(f_color, 1.0);
 }

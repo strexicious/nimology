@@ -11,17 +11,15 @@ type
     HEIGHT: int32
     window*: GLFWWindow
     updates: seq[proc(delta: GLfloat): void]
-    renders: seq[(string, proc(): void)]
+    renders: seq[(string, proc(obj: Object): void)]
     textures: seq[GLuint]
     shaderPrograms: seq[GLuint]
     objects: Table[string, Object]
   
-  Object = object
-    vao: GLuint
-    vbo: GLuint
-    ebo: GLuint
-    vertSize: GLsizei
-    indSize: GLsizei
+  Object* = object
+    vao*: GLuint
+    vbo*: GLuint
+    ebo*: GLuint
 
 var engineAlreadyStarted = false
 
@@ -54,6 +52,7 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
     result.err("failed to start OpenGL")
     return
   
+  glEnable(GL_DEPTH_TEST)
   glClearColor(r, g, b, 1.0)
 
   result.ok(Engine(
@@ -136,7 +135,7 @@ proc addRawObject*(
       cast[GLsizei](stride * GLfloat.sizeof), cast[pointer](attr[1] * GLfloat.sizeof))
     glEnableVertexAttribArray(cast[GLuint](i))
   
-  engine.objects[name] = Object(vao: vao, vbo: vbo, vertSize: GLsizei(data.len / stride))
+  engine.objects[name] = Object(vao: vao, vbo: vbo)
   glBindVertexArray(0)
 
 proc rawObjectIndices*(engine: var Engine, name: string, indices: var seq[GLuint]): Result[void, string] =
@@ -151,7 +150,6 @@ proc rawObjectIndices*(engine: var Engine, name: string, indices: var seq[GLuint
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(GLuint.sizeof * indices.len), indices[0].addr, GL_STATIC_DRAW)
   engine.objects[name].ebo = ebo
-  engine.objects[name].indSize = GLsizei(indices.len)
   glBindVertexArray(0)
 
 proc addTexture*(engine: var Engine, unit: GLenum, imgData: ImageData): void =
@@ -173,7 +171,7 @@ proc addTexture*(engine: var Engine, unit: GLenum, imgData: ImageData): void =
 proc addRender*(
   engine: var Engine,
   name: string,
-  render: proc(): void
+  render: proc(obj: Object): void
 ): Result[void, string] =
   if not engine.objects.hasKey(name):
     result.err("no such object: " & name)
@@ -187,7 +185,7 @@ proc addUpdate*(engine: var Engine, update: proc(delta: GLfloat): void): void =
 proc loopEngine*(engine: var Engine): void =
   var lastTime = glfwGetTime()
   while not engine.window.windowShouldClose:
-    glClear(GL_COLOR_BUFFER_BIT)
+    glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
     # get input and queue updates
     let now = glfwGetTime()
@@ -200,14 +198,8 @@ proc loopEngine*(engine: var Engine): void =
 
     # run the renderers
     for render in engine.renders:
-      render[1]()
-      let obj = engine.objects[render[0]]
-      glBindVertexArray(obj.vao)
-      if obj.ebo != 0:
-        glDrawElements(GL_TRIANGLES, obj.indSize, GL_UNSIGNED_INT, nil)
-      else:
-        glDrawArrays(GL_TRIANGLES, 0, obj.vertSize)
-    
+      render[1](engine.objects[render[0]])
+          
     if engine.window.getKey(keyEscape) == kaPress:
       engine.window.setWindowShouldClose(true)
       
