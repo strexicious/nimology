@@ -72,15 +72,27 @@ proc getShaderLog(s: GLuint): cstring =
   result = cast[cstring](logText)
   dealloc(logText)
 
+proc createShader(stype: GLenum, source: var cstring): GLuint =
+  result = glCreateShader(stype)
+  glShaderSource(result, 1, source.addr, nil)
+  glCompileShader(result)
+
+proc createProgram(shaders: openArray[GLuint]): GLuint =
+  result = glCreateProgram()
+  
+  for shader in shaders:
+    glAttachShader(result, shader)
+  
+  glLinkProgram(result)
+  
+  for shader in shaders:
+    glDetachShader(result, shader)
+    glDeleteShader(shader)
+
 proc regularShader*(engine: var Engine, vsource: var cstring, fsource: var cstring): Result[GLuint, string] =
-  let vshader = glCreateShader(GL_VERTEX_SHADER)
-  glShaderSource(vshader, 1, vsource.addr, nil)
-  glCompileShader(vshader)
-
-  let fshader = glCreateShader(GL_FRAGMENT_SHADER)
-  glShaderSource(fshader, 1, fsource.addr, nil)
-  glCompileShader(fshader)
-
+  let vshader = createShader(GL_VERTEX_SHADER, vsource)
+  let fshader = createShader(GL_FRAGMENT_SHADER, fsource)
+  
   var status: GLenum
   glGetShaderiv(vshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
   if status == GL_FALSE:
@@ -92,15 +104,38 @@ proc regularShader*(engine: var Engine, vsource: var cstring, fsource: var cstri
     result.err("Fragment shader error: " & $getShaderLog(fshader))
     return
   
-  let program = glCreateProgram()
-  glAttachShader(program, vshader)
-  glAttachShader(program, fshader)
-  glLinkProgram(program)
-  glDetachShader(program, vshader)
-  glDetachShader(program, fshader)
-  glDeleteShader(vshader)
-  glDeleteShader(fshader)
+  let program = createProgram([vshader, fshader])
+  engine.shaderPrograms.add(program)
 
+  result.ok(program)
+
+proc regularShaderWithGS*(
+  engine: var Engine,
+  vsource: var cstring,
+  gsource: var cstring,
+  fsource: var cstring
+): Result[GLuint, string] =
+  let vshader = createShader(GL_VERTEX_SHADER, vsource)
+  let gshader = createShader(GL_GEOMETRY_SHADER, gsource)
+  let fshader = createShader(GL_FRAGMENT_SHADER, fsource)
+  
+  var status: GLenum
+  glGetShaderiv(vshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
+  if status == GL_FALSE:
+    result.err("Vertex shader error: " & $getShaderLog(vshader))
+    return
+  
+  glGetShaderiv(gshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
+  if status == GL_FALSE:
+    result.err("Geometry shader error: " & $getShaderLog(gshader))
+    return
+
+  glGetShaderiv(fshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
+  if status == GL_FALSE:
+    result.err("Fragment shader error: " & $getShaderLog(fshader))
+    return
+
+  let program = createProgram([vshader, gshader, fshader])
   engine.shaderPrograms.add(program)
 
   result.ok(program)
