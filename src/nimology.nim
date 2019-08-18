@@ -5,11 +5,17 @@ import glm
 import nimgl/[glfw, opengl, stb/image]
 import engine
 
+const
+  WIDTH = 800
+  HEIGHT = 600
+
 let engineErrorMapper = proc(x: string): string = "Engine error: " & x
 
-var ngn = startEngine(800, 600, 0.2, 0.25, 0.2)
+var ngn = startEngine(WIDTH, HEIGHT, 0.2, 0.25, 0.2)
   .mapErr(engineErrorMapper)
   .get()
+ngn.setCenteredPos()
+ngn.setCursor(glfwCreateStandardCursor(csCrosshair))
 
 # shader
 var vertex_source: cstring = readFile("res/shaders/shader2.vert")
@@ -22,15 +28,13 @@ let sp = ngn
 
 # add renders with all the data
 var data: seq[GLfloat] = @[]
-for z in countup(0, 999):
+for y in countup(0, 999):
   for x in countup(0, 1000):
     data.add((GLfloat(x) - 500.0) * 0.01)
-    data.add((GLfloat(z) - 500.0) * 0.01)
+    data.add((GLfloat(y) - 500.0) * 0.01)
     
     data.add((GLfloat(x) - 500.0) * 0.01)
-    data.add((GLfloat(z+1) - 500.0) * 0.01)
-
-
+    data.add((GLfloat(y+1) - 500.0) * 0.01)
 
 discard ngn.addRawObject("sqware", data, @[(2'i32, 0)])
 
@@ -39,8 +43,14 @@ let timeUni = glGetUniformLocation(sp, "time")
 let viewUni = glGetUniformLocation(sp, "view")
 let projUni = glGetUniformLocation(sp, "proj")
 
-var view = lookAt(vec3f(6.0), vec3f(0.0), vec3f(0.0, 1.0, 0.0))
-var proj = ortho(-8.0'f32, 8.0'f32, -8.0'f32, 8.0'f32, 0.0'f32, 18.0'f32)
+var viewDirAngle = 90.0'f32
+var camPos = vec3f(0.0, 0.0, 10.0)
+
+proc viewDir(angle: float32): Vec3f =
+  return vec3f(cos(radians(angle)), 0.0, -sin(radians(angle)))
+
+var view = lookAt(camPos, camPos + viewDir(viewDirAngle), vec3f(0.0, 1.0, 0.0))
+var proj = perspective(GLfloat(45.0), WIDTH / HEIGHT, 1.0, 200.0)
 
 var time: GLfloat = 0.0
 
@@ -57,8 +67,30 @@ let sqwareRender = proc(obj: Object): void =
 discard ngn.addRender("sqware", sqwareRender)
 
 # add updates
+const moveSpeed: GLfloat = 0.3
+
 let sqwareUpdate = proc(delta: GLfloat): void =
   time += delta
+
+  let (x, _) = ngn.getCenteredPos()
+  viewDirAngle -= x
+
+  if ngn.window.getKey(keyW) == kaPress:
+    camPos += moveSpeed * viewDir(viewDirAngle)
+
+  if ngn.window.getKey(keyS) == kaPress:
+    camPos -= moveSpeed * viewDir(viewDirAngle)
+  
+  let sideDir = cross(viewDir(viewDirAngle), vec3f(0.0, 1.0, 0.0))
+
+  if ngn.window.getKey(keyA) == kaPress:
+    camPos -= moveSpeed * sideDir
+
+  if ngn.window.getKey(keyD) == kaPress:
+    camPos += moveSpeed * sideDir
+  
+  view = lookAt(camPos, camPos + viewDir(viewDirAngle), vec3f(0.0, 1.0, 0.0))
+  ngn.setCenteredPos()
 
 ngn.addUpdate(sqwareUpdate)
 

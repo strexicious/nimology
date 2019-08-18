@@ -37,7 +37,7 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
   glfwWindowHint(whOpenglProfile, GLFW_OPENGL_CORE_PROFILE)
   glfwWindowHint(whOpenglForwardCompat, GLFW_TRUE)
   glfwWindowHint(whResizable, GLFW_TRUE)
-  
+    
   let w = glfwCreateWindow(width, height, "nimology engine", nil, nil)
   if w.isNil:
     glfwTerminate()
@@ -61,6 +61,17 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
     window: w,
   ))
   engineAlreadyStarted = true
+
+proc getCenteredPos*(engine: Engine): (float, float) =
+  var x, y: float64
+  engine.window.getCursorPos(x.addr, y.addr)
+  return (x - engine.WIDTH / 2, y - engine.HEIGHT / 2)
+
+proc setCenteredPos*(engine: Engine): void =
+  engine.window.setCursorPos(engine.WIDTH / 2, engine.HEIGHT / 2)
+
+proc setCursor*(engine: Engine, cursor: GLFWCursor): void =
+  engine.window.setCursor(cursor)
 
 proc getShaderLog(s: GLuint): cstring =
   var logLength: GLsizei
