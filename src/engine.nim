@@ -4,6 +4,7 @@ import result
 import nimgl/[glfw, opengl, stb/image]
 import gui
 import renderer/text
+import command
 
 stbiSetFlipVerticallyOnLoad(true)
 
@@ -14,10 +15,40 @@ type
     window: GLFWWindow
     gui: Gui
     tr: TextRenderer
+    ch: CommandHandler
+    imode: InputMode
+  
+  InputMode = enum
+    im_interactive, im_command
+
+let handler = proc(window: GLFWWindow, key: GLFWKey, scancode: int32, action: GLFWKeyAction, mods: GLFWKeyMod): void {.cdecl.} =
+  var engine = cast[ptr Engine](window.getWindowUserPointer())
+
+  if engine.imode == im_command and key == keyEscape:
+    engine.imode = im_interactive
+    engine.ch.clearCurrCmd()
+    return
+
+  if engine.imode == im_command:
+    engine.ch.handleInput(key, scancode, action, mods)
+    if key == keyEnter:
+      engine.imode = im_interactive
+    return
+
+  if engine.imode == im_interactive and key == keyEscape and action == kaPress:
+    engine.window.setWindowShouldClose(true)
+    return
+
+  if engine.imode == im_interactive and key == keyT:
+    engine.imode = im_command
+    return
+
+let loadCmd: CmdHandler = proc(params: openarray[string]): void =
+  echo params
 
 var engineAlreadyStarted = false
 
-proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Result[Engine, string] =
+proc startEngine*(width: int32, height: int32, r, g, b: float): Result[ptr Engine, string] =
   if engineAlreadyStarted:
     result.err("engine already running")
     return
@@ -47,16 +78,26 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
     
   glClearColor(r, g, b, 1.0)
 
-  var engine = Engine(WIDTH: width, HEIGHT: height, window: w)
+  var engine = cast[ptr Engine](alloc(Engine.sizeof))
+  engine.WIDTH = width
+  engine.HEIGHT = height
+  engine.window = w
+  engine.imode = im_interactive
+  engine.ch = new CommandHandler
 
-  let info = newGuiInfo([1.0'f32, 1.0'f32, 1.0'f32])
+  let info = newGuiInfo([1.0'f32, 1.0'f32, 1.0'f32], engine.ch)
   engine.tr = newTextRenderer("res/fonts/font.png")
   engine.gui = newGui(width, height, info, engine.tr)
   result.ok(engine)
 
+  engine.window.setWindowUserPointer(engine)
+  discard engine.window.setKeyCallback(handler)
+
+  engine.ch.registerHandler("load", loadCmd)
+
   engineAlreadyStarted = true
 
-proc loopEngine*(engine: var Engine): void =
+proc loopEngine*(engine: var ptr Engine): void =
   var lastTime = glfwGetTime()
   while not engine.window.windowShouldClose:
     glClear(GL_COLOR_BUFFER_BIT)
@@ -67,14 +108,11 @@ proc loopEngine*(engine: var Engine): void =
 
     engine.gui.info.setFps(uint16(1 / deltaTime))
     engine.gui.drawGui()
-
-    if engine.window.getKey(keyEscape) == kaPress:
-      engine.window.setWindowShouldClose(true)
       
     engine.window.swapBuffers()
     glfwPollEvents()
 
-proc stopEngine*(engine: var Engine): Result[void, string] =
+proc stopEngine*(engine: var ptr Engine): Result[void, string] =
   if not engineAlreadyStarted:
     result.err("engine not running")
     return
@@ -85,4 +123,5 @@ proc stopEngine*(engine: var Engine): Result[void, string] =
   glfwTerminate()
 
   engineAlreadyStarted = false
+  dealloc(engine)
   result.ok()

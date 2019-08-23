@@ -1,3 +1,4 @@
+import strutils
 import result
 import nimgl/[opengl, stb/image]
 import ../shader
@@ -30,6 +31,8 @@ proc newTextRenderer*(font: string): TextRenderer =
   glBindVertexArray(result.vao)
   glGenBuffers(1, result.vbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
+  # we preallocate 1000 chars worth of space, hopefully it is enough
+  glBufferData(GL_ARRAY_BUFFER, 1000 * TextPoint.sizeof, nil, GL_DYNAMIC_DRAW)
 
   let stride: GLsizei = GLfloat.sizeof * 3 + GLuint.sizeof
   let symbolOffset = GLfloat.sizeof * 3
@@ -67,8 +70,8 @@ proc emptyData*(tr: var TextRenderer): void =
   tr.data = @[]
 
 proc uploadData*(tr: var TextRenderer): void =
-  glBindBuffer(GL_ARRAY_BUFFER, tr.vbo)
-  glBufferData(GL_ARRAY_BUFFER, tr.data.len * TextPoint.sizeof, tr.data[0].addr, GL_STATIC_DRAW)
+  glBindVertexArray(tr.vao)
+  glBufferSubData(GL_ARRAY_BUFFER, 0, tr.data.len * TextPoint.sizeof, tr.data[0].addr)
   tr.textPointsLen = GLsizei(tr.data.len)
   tr.emptyData()
 
@@ -84,4 +87,20 @@ proc cleanTextRenderer*(tr: var TextRenderer): void =
   glDeleteProgram(tr.sprogram)
 
 proc getSymbol*(c: char): GLuint =
-  return GLuint(ord(c) - ord('a'))
+  if c.isLowerAscii:
+    return GLuint(ord(c) - ord('a'))
+  elif c.isDigit:
+    return GLuint(ord(c) - ord('0') + 30)
+  
+  case c
+  of '.':
+    return GLuint(26)
+  of '/':
+    return GLuint(27)
+  of ':':
+    return GLuint(28)
+  of ' ':
+    return GLuint(29)
+  else:
+    return GLuint(0)
+  
