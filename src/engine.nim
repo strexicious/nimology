@@ -1,29 +1,83 @@
 from math import sin
+from camera import moveCamera, setAngles, MoveDir
 
-import tables
-import sets
+import streams
+import strutils
 import result
+import nimasset/obj
 import nimgl/[glfw, opengl, stb/image]
+import gui
+import renderer/[text, model]
+import command
+
+
+stbiSetFlipVerticallyOnLoad(true)
 
 type
   Engine* = object
     WIDTH: int32
     HEIGHT: int32
-    window*: GLFWWindow
-    updates: seq[proc(delta: GLfloat): void]
-    renders: seq[(string, proc(obj: Object): void)]
-    textures: seq[GLuint]
-    shaderPrograms: seq[GLuint]
-    objects: Table[string, Object]
+    window: GLFWWindow
+    gui: Gui
+    mr: ModelRenderer
+    tr: TextRenderer
+    ch: CommandHandler
+    imode: InputMode
   
-  Object* = object
-    vao*: GLuint
-    vbo*: GLuint
-    ebo*: GLuint
+  InputMode = enum
+    im_interactive, im_command
+
+let handler = proc(window: GLFWWindow, key: GLFWKey, scancode: int32, action: GLFWKeyAction, mods: GLFWKeyMod): void {.cdecl.} =
+  var engine = cast[ptr Engine](window.getWindowUserPointer())
+
+  if engine.imode == im_command and key == keyEscape:
+    engine.imode = im_interactive
+    engine.ch.clearCurrCmd()
+    return
+
+  if engine.imode == im_command:
+    engine.ch.handleInput(key, scancode, action, mods)
+    if key == keyEnter:
+      engine.imode = im_interactive
+    return
+
+  if engine.imode == im_interactive and key == keyEscape and action == kaPress:
+    engine.window.setWindowShouldClose(true)
+    return
+
+  if engine.imode == im_interactive and key == keyT:
+    engine.imode = im_command
+    return
+  
+  if engine.imode == im_interactive and key == keyW:
+    engine.mr.cam.moveCamera(md_forward)
+    engine.mr.updateView()
+    return
+  
+  if engine.imode == im_interactive and key == keyS:
+    engine.mr.cam.moveCamera(md_backward)
+    engine.mr.updateView()
+    return
+
+let mouseHandler = proc(window: GLFWWindow, xpos: float64, ypos: float64): void {.cdecl.} =
+  let engine = cast[ptr Engine](window.getWindowUserPointer())
+  engine.mr.cam.setAngles(xpos, ypos)
+  engine.mr.updateView()
+
+let debugCB = proc(
+  source: GLenum,
+  `type`: GLenum,
+  id: GLuint,
+  severity: GLenum,
+  length: GLsizei,
+  message: cstring,
+  userParam: pointer
+): void {.cdecl.} =
+  echo source, ", ", `type`, ": ", message
 
 var engineAlreadyStarted = false
 
-proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Result[Engine, string] =
+proc startEngine*(width: int32, height: int32, r, g, b: float): Result[ptr Engine, string] =
   if engineAlreadyStarted:
     result.err("engine already running")
     return
@@ -31,20 +85,22 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
   if not glfwInit():
     result.err("failed to start glfw")
     return
-    
+  
   glfwWindowHint(whContextVersionMajor, 3)
   glfwWindowHint(whContextVersionMinor, 2)
   glfwWindowHint(whOpenglProfile, GLFW_OPENGL_CORE_PROFILE)
   glfwWindowHint(whOpenglForwardCompat, GLFW_TRUE)
-  glfwWindowHint(whResizable, GLFW_TRUE)
+  glfwWindowHint(whResizable, GLFW_FALSE)
+  glfwWindowHint(whOpenglDebugContext, GLFW_TRUE)
   
   let w = glfwCreateWindow(width, height, "nimology engine", nil, nil)
   if w.isNil:
-    glfwTerminate()
     result.err("failed to create a window")
     return
-  
+
   w.makeContextCurrent()
+  w.setCursorPos(0, 0)
+  w.setInputMode(EGLFW_CURSOR, GLFW_CURSOR_DISABLED)
   
   if not glInit():
     w.destroyWindow()
@@ -52,214 +108,84 @@ proc startEngine*(width: int32, height: int32, r: float, g: float, b: float): Re
     result.err("failed to start OpenGL")
     return
   
-  glEnable(GL_DEPTH_TEST)
+  glEnable(GL_DEBUG_OUTPUT)
+  glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS)
+  glDebugMessageCallback(debugCB, nil)
   glClearColor(r, g, b, 1.0)
 
-  result.ok(Engine(
-    WIDTH: width,
-    HEIGHT: height,
-    window: w,
-  ))
+  var engine = cast[ptr Engine](alloc(Engine.sizeof))
+  engine.WIDTH = width
+  engine.HEIGHT = height
+  engine.window = w
+  engine.imode = im_interactive
+  engine.ch = new CommandHandler
+  engine.mr = newModelRenderer(engine.WIDTH, engine.HEIGHT)
+
+  let info = newGuiInfo([1.0'f32, 1.0'f32, 1.0'f32], engine.ch)
+  engine.tr = newTextRenderer("res/fonts/font.png")
+  engine.gui = newGui(width, height, info, engine.tr)
+  result.ok(engine)
+
+  engine.window.setWindowUserPointer(engine)
+  discard engine.window.setKeyCallback(handler)
+  discard engine.window.setCursorPosCallback(mouseHandler)
+  
+  let loadCmd: CmdHandler = proc(params: openarray[string]): void =
+    if params.len == 0:
+      echo "Need an obj filename"
+      return
+
+    let
+      loader: ObjLoader = new ObjLoader
+      f = open(params[0])
+      fs = newFileStream(f)
+
+    engine.mr.emptyData()
+    var tempVerts: seq[GLfloat] = @[]
+    let taddVertex = proc(x, y, z: GLfloat) =
+      tempVerts.add([x, y, z])
+    
+    let taddTexture = proc(u, v, w: float) = discard
+
+    let taddFace = proc(vi0, vi1, vi2, ti0, ti1, ti2, ni0, ni1, ni2: int) =
+      engine.mr.addVertex(tempVerts[vi0*3-3], tempVerts[vi0*3-2], tempVerts[vi0*3-1])
+      engine.mr.addVertex(tempVerts[vi1*3-3], tempVerts[vi1*3-2], tempVerts[vi1*3-1])
+      engine.mr.addVertex(tempVerts[vi2*3-3], tempVerts[vi2*3-2], tempVerts[vi2*3-1])
+
+    loadMeshData(loader, fs, taddVertex, taddTexture, taddFace)
+    engine.mr.uploadData()
+  
+  engine.ch.registerHandler("load", loadCmd)
+
   engineAlreadyStarted = true
 
-proc getShaderLog(s: GLuint): cstring =
-  var logLength: GLsizei
-  glGetShaderiv(s, GL_INFO_LOG_LENGTH, logLength.addr)
-  
-  var logText = alloc(logLength)
-  glGetShaderInfoLog(s, logLength, nil, cast[cstring](logText))
-  
-  result = cast[cstring](logText)
-  dealloc(logText)
-
-proc createShader(stype: GLenum, source: var cstring): GLuint =
-  result = glCreateShader(stype)
-  glShaderSource(result, 1, source.addr, nil)
-  glCompileShader(result)
-
-proc createProgram(shaders: openArray[GLuint]): GLuint =
-  result = glCreateProgram()
-  
-  for shader in shaders:
-    glAttachShader(result, shader)
-  
-  glLinkProgram(result)
-  
-  for shader in shaders:
-    glDetachShader(result, shader)
-    glDeleteShader(shader)
-
-proc regularShader*(engine: var Engine, vsource: var cstring, fsource: var cstring): Result[GLuint, string] =
-  let vshader = createShader(GL_VERTEX_SHADER, vsource)
-  let fshader = createShader(GL_FRAGMENT_SHADER, fsource)
-  
-  var status: GLenum
-  glGetShaderiv(vshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
-  if status == GL_FALSE:
-    result.err("Vertex shader error: " & $getShaderLog(vshader))
-    return
-
-  glGetShaderiv(fshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
-  if status == GL_FALSE:
-    result.err("Fragment shader error: " & $getShaderLog(fshader))
-    return
-  
-  let program = createProgram([vshader, fshader])
-  engine.shaderPrograms.add(program)
-
-  result.ok(program)
-
-proc regularShaderWithGS*(
-  engine: var Engine,
-  vsource: var cstring,
-  gsource: var cstring,
-  fsource: var cstring
-): Result[GLuint, string] =
-  let vshader = createShader(GL_VERTEX_SHADER, vsource)
-  let gshader = createShader(GL_GEOMETRY_SHADER, gsource)
-  let fshader = createShader(GL_FRAGMENT_SHADER, fsource)
-  
-  var status: GLenum
-  glGetShaderiv(vshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
-  if status == GL_FALSE:
-    result.err("Vertex shader error: " & $getShaderLog(vshader))
-    return
-  
-  glGetShaderiv(gshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
-  if status == GL_FALSE:
-    result.err("Geometry shader error: " & $getShaderLog(gshader))
-    return
-
-  glGetShaderiv(fshader, GL_COMPILE_STATUS, cast[ptr GLint](status.addr))
-  if status == GL_FALSE:
-    result.err("Fragment shader error: " & $getShaderLog(fshader))
-    return
-
-  let program = createProgram([vshader, gshader, fshader])
-  engine.shaderPrograms.add(program)
-
-  result.ok(program)
-
-proc addRawObject*(
-  engine: var Engine,
-  name: string,
-  data: var seq[GLfloat],
-  attribs: seq[(GLsizei, GLsizeiptr)] # (size, offset)
-): Result[void, string] =
-  if engine.objects.hasKey(name):
-    result.err("object already present")
-    return
-  
-  var
-    vao: GLuint
-    vbo: GLuint
-  
-  glGenVertexArrays(1, vao.addr)
-  glGenBuffers(1, vbo.addr)
-
-  glBindVertexArray(vao)
-  glBindBuffer(GL_ARRAY_BUFFER, vbo)
-  glBufferData(GL_ARRAY_BUFFER, cast[GLsizeiptr](GLfloat.sizeof * data.len), data[0].addr, GL_STATIC_DRAW)
-
-  var stride: GLsizei = 0
-  for attr in attribs.items:
-    stride += attr[0]
-
-  for i, attr in attribs.pairs:
-    glVertexAttribPointer(cast[GLuint](i), cast[GLint](attr[0]), EGL_FLOAT, false,
-      cast[GLsizei](stride * GLfloat.sizeof), cast[pointer](attr[1] * GLfloat.sizeof))
-    glEnableVertexAttribArray(cast[GLuint](i))
-  
-  engine.objects[name] = Object(vao: vao, vbo: vbo)
-  glBindVertexArray(0)
-
-proc rawObjectIndices*(engine: var Engine, name: string, indices: var seq[GLuint]): Result[void, string] =
-  if not engine.objects.hasKey(name):
-    result.err("invalid object")
-    return
-  
-  glBindVertexArray(engine.objects[name].vao)
-  
-  var ebo: GLuint
-  glGenBuffers(1, ebo.addr)
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(GLuint.sizeof * indices.len), indices[0].addr, GL_STATIC_DRAW)
-  engine.objects[name].ebo = ebo
-  glBindVertexArray(0)
-
-proc addTexture*(engine: var Engine, unit: GLenum, imgData: ImageData): void =
-  glActiveTexture(unit)
-  
-  var tex: Gluint
-  glGenTextures(1, tex.addr)
-  glBindTexture(GL_TEXTURE_2D, tex)
-  
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GLint(GL_REPEAT))
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GLint(GL_REPEAT))
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GLint(GL_LINEAR))
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GLint(GL_LINEAR))
-
-  glTexImage2D(GL_TEXTURE_2D, 0, GLint(GL_RGB), imgData.width, imgData.height, 0, GL_RGB,
-    GL_UNSIGNED_BYTE, cast[pointer](imgData.data))
-  engine.textures.add(tex)
-
-proc addRender*(
-  engine: var Engine,
-  name: string,
-  render: proc(obj: Object): void
-): Result[void, string] =
-  if not engine.objects.hasKey(name):
-    result.err("no such object: " & name)
-    return
-  
-  engine.renders.add((name, render))
-
-proc addUpdate*(engine: var Engine, update: proc(delta: GLfloat): void): void =
-  engine.updates.add(update)
-
-proc loopEngine*(engine: var Engine): void =
+proc loopEngine*(engine: var ptr Engine): void =
   var lastTime = glfwGetTime()
   while not engine.window.windowShouldClose:
-    glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-
+    glClear(GL_COLOR_BUFFER_BIT)
     # get input and queue updates
     let now = glfwGetTime()
     let deltaTime = now - lastTime
     lastTime = now
-    
-    # run the updates
-    for update in engine.updates:
-      update(deltaTime)
 
-    # run the renderers
-    for render in engine.renders:
-      render[1](engine.objects[render[0]])
-          
-    if engine.window.getKey(keyEscape) == kaPress:
-      engine.window.setWindowShouldClose(true)
+    engine.gui.info.setFps(uint16(1 / deltaTime))
+    engine.mr.render()
+    engine.gui.drawGui()
       
     engine.window.swapBuffers()
     glfwPollEvents()
 
-proc stopEngine*(engine: var Engine): Result[void, string] =
+proc stopEngine*(engine: var ptr Engine): Result[void, string] =
   if not engineAlreadyStarted:
     result.err("engine not running")
     return
   
-  for sp in engine.shaderPrograms:
-    glDeleteProgram(sp)
-  
-  for obj in engine.objects.values:
-    glDeleteBuffers(1, unsafeAddr obj.vbo)
-
-    if obj.ebo != 0:
-      glDeleteBuffers(1, unsafeAddr obj.ebo)
-    
-    glDeleteVertexArrays(1, unsafeAddr obj.vao)
-  
-  if engine.textures.len > 0:
-    glDeleteTextures(GLsizei(engine.textures.len), engine.textures[0].addr)
-  
+  engine.mr.cleanModelRenderer()
+  engine.tr.cleanTextRenderer()
   # this also destroys OpenGL context
   engine.window.destroyWindow()
   glfwTerminate()
+
+  engineAlreadyStarted = false
+  dealloc(engine)
+  result.ok()
