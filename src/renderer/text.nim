@@ -70,7 +70,7 @@ proc emptyData*(tr: var TextRenderer): void =
   tr.data = @[]
 
 proc uploadData*(tr: var TextRenderer): void =
-  glBindVertexArray(tr.vao)
+  glBindBuffer(GL_ARRAY_BUFFER, tr.vbo)
   glBufferSubData(GL_ARRAY_BUFFER, 0, tr.data.len * TextPoint.sizeof, tr.data[0].addr)
   tr.textPointsLen = GLsizei(tr.data.len)
   tr.emptyData()
