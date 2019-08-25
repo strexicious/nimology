@@ -30,6 +30,8 @@ proc newModelRenderer*(width: int32, height: int32): ModelRenderer =
   glGenVertexArrays(1, result.vao.addr)
   glBindVertexArray(result.vao)
   glGenBuffers(1, result.vbo.addr)
+  glBindBuffer(GL_ARRAY_BUFFER, result.vbo)
+  glVertexAttribPointer(0, 3, EGL_FLOAT, false, 0, nil)
   glEnableVertexAttribArray(0)
 
   glEnable(GL_CULL_FACE)
@@ -41,10 +43,8 @@ proc addVertex*(mr: ModelRenderer, x, y, z: GLfloat): void =
   mr.data.add([x, y, z])
 
 proc uploadData*(mr: ModelRenderer): void =
-  glBindVertexArray(mr.vao)
   glBindBuffer(GL_ARRAY_BUFFER, mr.vbo)
   glBufferData(GL_ARRAY_BUFFER, GLfloat.sizeof * mr.data.len, mr.data[0].addr, GL_STATIC_DRAW)
-  glVertexAttribPointer(0, 3, EGL_FLOAT, false, 0, nil)
 
 proc updateView*(mr: ModelRenderer): void =
   glUseProgram(mr.sprogram)
